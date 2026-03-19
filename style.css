@@ -1,0 +1,55 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #0a0a0f;
+  color: #e0e0e0;
+  font-family: 'Share Tech Mono', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+h1 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: #fff;
+  text-shadow: 0 0 20px #4af, 0 0 50px #4af8;
+  margin-bottom: 6px;
+}
+.subtitle { font-size: 0.8rem; color: #4af; letter-spacing: 3px; margin-bottom: 20px; }
+.diff-label { font-size: 0.85rem; color: #666; letter-spacing: 2px; margin-bottom: 8px; }
+#menu, #gameover {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  animation: fadeIn 0.4s ease;
+}
+#gameover { display: none; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(-15px)} to{opacity:1;transform:translateY(0)} }
+.diff-btns { display: flex; gap: 10px; }
+.btn {
+  background: transparent; border: 2px solid #4af; color: #4af;
+  font-family: 'Share Tech Mono', monospace; font-size: 0.85rem;
+  padding: 9px 20px; cursor: pointer; letter-spacing: 2px;
+  text-transform: uppercase; transition: all 0.15s;
+}
+.btn:hover, .btn.active { background: #4af; color: #000; box-shadow: 0 0 15px #4af; }
+.btn-start { margin-top: 8px; font-size: 1rem; padding: 12px 36px; border-color: #fff; color: #fff; }
+.btn-start:hover { background: #fff; color: #000; box-shadow: 0 0 25px #fff; }
+#game-container { display: none; flex-direction: column; align-items: center; gap: 8px; }
+#hud {
+  display: flex; gap: 30px; font-size: 0.82rem; letter-spacing: 2px;
+  color: #666; align-items: center;
+}
+#hud .val { color: #fff; font-size: 1rem; }
+#canvas { border: 2px solid #222; background: #0d0d14; display: block; cursor: crosshair; }
+#info-bar { font-size: 0.7rem; color: #333; letter-spacing: 1px; }
+#next-trains { display: flex; gap: 6px; align-items: center; }
+.train-preview { width: 16px; height: 16px; border-radius: 2px; border: 1px solid #444; }
+.hint { font-size: 0.72rem; color: #4af; animation: pulse 2s infinite; margin-top: 4px; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+#final-score-label { font-family:'Orbitron',sans-serif; font-size:2.8rem; color:#4af; text-shadow:0 0 20px #4af; }
+#final-msg { font-size:0.9rem; color:#aaa; letter-spacing:2px; text-align:center; }
+.btn-row { display:flex; gap:12px; margin-top:8px; }

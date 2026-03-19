@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniTrain</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="menu">
+  <h1>MINITRAIN</h1>
+  <div class="subtitle">RAILWAY ROUTING SIMULATOR</div>
+  <div class="diff-label">— CHOISISSEZ LA DIFFICULTE —</div>
+  <div class="diff-btns">
+    <button class="btn active" id="d-easy"   onclick="setDiff('easy')">FACILE</button>
+    <button class="btn"        id="d-medium" onclick="setDiff('medium')">MOYEN</button>
+    <button class="btn"        id="d-hard"   onclick="setDiff('hard')">DIFFICILE</button>
+  </div>
+  <button class="btn btn-start" onclick="startGame()">JOUER</button>
+  <div class="hint">Cliquez sur les jonctions pour changer leur direction</div>
+</div>
+
+<div id="game-container">
+  <div id="hud">
+    <div>SCORE <span class="val" id="score">0</span></div>
+    <div>TRAINS <span class="val" id="train-count">0</span></div>
+    <div>TEMPS <span class="val" id="timer">0</span>s</div>
+    <div id="next-trains"></div>
+  </div>
+  <canvas id="canvas"></canvas>
+  <div id="info-bar">Coordonnees : (<span id="coords">0, 0</span>)</div>
+</div>
+
+<div id="gameover">
+  <h1>MINITRAIN</h1>
+  <div class="subtitle">PARTIE TERMINEE</div>
+  <div id="final-score-label">0</div>
+  <div id="final-msg"></div>
+  <div class="btn-row">
+    <button class="btn btn-start" onclick="backToMenu()">MENU</button>
+    <button class="btn btn-start" style="border-color:#4af;color:#4af" onclick="startGame()">REJOUER</button>
+  </div>
+</div>
+
+<script src="game-classes.js"></script>
+<script>
+const DIFFICULTY = {
+  easy:   { colors: 3, junctions: 3, interval: 4500, totalTrains: 9,  speed: 60  },
+  medium: { colors: 4, junctions: 5, interval: 3000, totalTrains: 12, speed: 90  },
+  hard:   { colors: 5, junctions: 7, interval: 2000, totalTrains: 16, speed: 130 }
+};
+const COLORS = ['#9B2FC9','#2E9B2E','#D4C000','#E87820','#C0392B','#1A7FC1','#E84393'];
+const CELL = 70;
+const DX = [-1, 0, 1, 0];
+const DY = [ 0,-1, 0, 1];
+const OPP = [2, 3, 0, 1];
+
+let difficulty = 'easy';
+let cfg, canvas, ctx;
+let gameRunning = false;
+let score = 0;
+let trainsRemaining = 0;
+let elapsed = 0;
+let timerInterval, spawnInterval, animFrame, lastTime = 0;
+let trains = [], gameMap = null;
+let offsetX, offsetY;
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function generateMap(diff) {
+  const numColors = diff.colors, numJ = diff.junctions;
+  const rows = Math.max(9, numColors + 4);
+  const cols = numJ * 2 + 4;
+  const midY = Math.floor(rows / 2);
+  let remaining = shuffle(Array.from({length: numColors}, (_,i) => i));
+  const tunnel = new Tunnel(0, midY);
+  const junctions = [], stations = [], rails = [];
+  const jPos = [];
+  for (let i = 0; i < numJ; i++) jPos.push({ x: 2 + i * 2, y: midY });
+  const stationData = [];
+  for (let i = 0; i < numJ && remaining.length > 0; i++) {
+    const isLast = i === numJ - 1;
+    if (remaining.length > 0) {
+      const ci = remaining.shift();
+      stationData.push({ juncIdx: i, dir: 1, x: jPos[i].x, y: midY - 2, colorIdx: ci });
+    }
+    if (isLast && remaining.length > 0) {
+      const ci = remaining.shift();
+      stationData.push({ juncIdx: i, dir: 3, x: jPos[i].x, y: midY + 2, colorIdx: ci });
+    }
+  }
+  for (let i = 0; i < numJ && remaining.length > 0; i++) {
+    if (!stationData.some(s => s.juncIdx === i && s.dir === 3)) {
+      const ci = remaining.shift();
+      stationData.push({ juncIdx: i, dir: 3, x: jPos[i].x, y: midY + 2, colorIdx: ci });
+    }
+  }
+  for (const sd of stationData) stations.push(new Station(sd.x, sd.y, sd.colorIdx));
+  for (let i = 0; i < numJ; i++) {
+    const j = new Junction(jPos[i].x, jPos[i].y, i);
+    const isLast = i === numJ - 1;
+    const hasUp = stationData.some(s => s.juncIdx === i && s.dir === 1);
+    const hasDown = stationData.some(s => s.juncIdx === i && s.dir === 3);
+    if (isLast) j.connections[0] = [hasUp ? 1 : 3, hasDown ? 3 : 1];
+    else j.connections[0] = [2, hasUp ? 1 : 3];
+    junctions.push(j);
+  }
+  for (let x = 0; x < jPos[0].x; x++) rails.push({ x1: x, y1: midY, x2: x+1, y2: midY });
+  for (let i = 0; i < numJ - 1; i++)
+    for (let x = jPos[i].x; x < jPos[i+1].x; x++) rails.push({ x1: x, y1: midY, x2: x+1, y2: midY });
+  for (const sd of stationData) {
+    const step = sd.dir === 1 ? -1 : 1;
+    for (let y = midY; y !== sd.y; y += step) rails.push({ x1: sd.x, y1: y, x2: sd.x, y2: y + step });
+  }
+  const trainQueue = [];
+  for (let t = 0; t < diff.totalTrains; t++) trainQueue.push(Math.floor(Math.random() * numColors));
+  return { cols, rows, tunnel, stations, junctions, rails, trainQueue, trainIdx: 0, midY, jPos, stationData, numColors };
+}
+
+function computePath(colorIdx) {
+  const { tunnel, junctions, stations } = gameMap;
+  const path = [];
+  let cx = tunnel.x, cy = tunnel.y;
+  path.push({ x: cx, y: cy });
+  let dir = 2, steps = 0;
+  while (steps++ < 200) {
+    cx += DX[dir]; cy += DY[dir];
+    path.push({ x: cx, y: cy });
+    if (stations.some(s => s.x === cx && s.y === cy)) break;
+    const j = junctions.find(j => j.x === cx && j.y === cy);
+    if (j) { const outDir = j.route(OPP[dir]); if (outDir === null || outDir === undefined) break; dir = outDir; }
+  }
+  return path;
+}
+
+function setDiff(d) {
+  difficulty = d;
+  document.querySelectorAll('.diff-btns .btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('d-' + d).classList.add('active');
+}
+
+function startGame() {
+  cfg = DIFFICULTY[difficulty];
+  gameMap = generateMap(cfg);
+  trains = []; score = 0; trainsRemaining = cfg.totalTrains; elapsed = 0;
+  canvas = document.getElementById('canvas'); ctx = canvas.getContext('2d');
+  canvas.width  = Math.max(640, (gameMap.cols + 1) * CELL);
+  canvas.height = Math.max(420, (gameMap.rows + 1) * CELL);
+  offsetX = CELL * 0.5; offsetY = CELL * 0.5;
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('gameover').style.display = 'none';
+  document.getElementById('game-container').style.display = 'flex';
+  updateHUD(); renderNextTrains();
+  gameRunning = true; lastTime = 0;
+  clearInterval(timerInterval); clearInterval(spawnInterval); cancelAnimationFrame(animFrame);
+  timerInterval = setInterval(() => { if (!gameRunning) return; elapsed++; document.getElementById('timer').textContent = elapsed; }, 1000);
+  spawnTrain();
+  spawnInterval = setInterval(() => { if (!gameRunning) return; if (gameMap.trainIdx < gameMap.trainQueue.length) spawnTrain(); }, cfg.interval);
+  canvas.onclick = handleClick; canvas.onmousemove = handleMouseMove;
+  requestAnimationFrame(mainLoop);
+}
+
+function spawnTrain() {
+  if (gameMap.trainIdx >= gameMap.trainQueue.length) return;
+  const ci = gameMap.trainQueue[gameMap.trainIdx++];
+  trains.push(new Train(ci, computePath(ci)));
+  renderNextTrains();
+}
+
+function mainLoop(ts) {
+  if (!gameRunning) return;
+  const dt = lastTime ? Math.min(ts - lastTime, 100) : 16;
+  lastTime = ts;
+  for (const t of trains) {
+    if (!t.active || t.dead) continue;
+    t.update(dt);
+    if (!t.active && !t.dead) {
+      t.dead = true;
+      const last = t.path[t.path.length - 1];
+      const st = gameMap.stations.find(s => s.x === last.x && s.y === last.y);
+      if (st && st.colorIdx === t.colorIdx) { score++; st.flash = 20; document.getElementById('score').textContent = score; }
+      trainsRemaining--; document.getElementById('train-count').textContent = trainsRemaining;
+    }
+  }
+  if (gameMap.trainIdx >= gameMap.trainQueue.length && trains.every(t => !t.active) && trains.length > 0) { endGame(); return; }
+  draw();
+  animFrame = requestAnimationFrame(mainLoop);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#0d0d14'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#181828';
+  for (let gx = 0; gx <= gameMap.cols; gx++)
+    for (let gy = 0; gy <= gameMap.rows; gy++) { ctx.beginPath(); ctx.arc(offsetX+gx*CELL, offsetY+gy*CELL, 1.5, 0, Math.PI*2); ctx.fill(); }
+  drawRails();
+  gameMap.tunnel.draw();
+  for (const s of gameMap.stations) s.draw();
+  for (const j of gameMap.junctions) j.draw();
+  for (const t of trains) t.draw();
+}
+
+function drawRails() {
+  for (const r of gameMap.rails) {
+    const x1=offsetX+r.x1*CELL+CELL/2, y1=offsetY+r.y1*CELL+CELL/2;
+    const x2=offsetX+r.x2*CELL+CELL/2, y2=offsetY+r.y2*CELL+CELL/2;
+    const len=Math.hypot(x2-x1,y2-y1); if(len<1)continue;
+    const nx=-(y2-y1)/len*3.5, ny=(x2-x1)/len*3.5;
+    ctx.lineWidth=2.5; ctx.strokeStyle='#1e4a6a';
+    ctx.beginPath(); ctx.moveTo(x1+nx,y1+ny); ctx.lineTo(x2+nx,y2+ny); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1-nx,y1-ny); ctx.lineTo(x2-nx,y2-ny); ctx.stroke();
+    const nS=Math.ceil(len/20); ctx.strokeStyle='#2a2a3a'; ctx.lineWidth=3;
+    for(let i=1;i<nS;i++){const t=i/nS;const mx=x1+(x2-x1)*t,my=y1+(y2-y1)*t;ctx.beginPath();ctx.moveTo(mx+nx*1.6,my+ny*1.6);ctx.lineTo(mx-nx*1.6,my-ny*1.6);ctx.stroke();}
+  }
+}
+
+function handleClick(e) {
+  const rect=canvas.getBoundingClientRect();
+  const px=(e.clientX-rect.left)*(canvas.width/rect.width);
+  const py=(e.clientY-rect.top)*(canvas.height/rect.height);
+  for(const j of gameMap.junctions){
+    if(j.hitTest(px,py)){
+      j.toggle();
+      for(const t of trains){if(!t.active||t.dead)continue;const jIdx=t.path.findIndex(n=>n.x===j.x&&n.y===j.y);if(jIdx>t.nodeIdx)t.path=computePath(t.colorIdx);}
+      break;
+    }
+  }
+}
+
+function handleMouseMove(e) {
+  const rect=canvas.getBoundingClientRect();
+  const px=(e.clientX-rect.left)*(canvas.width/rect.width);
+  const py=(e.clientY-rect.top)*(canvas.height/rect.height);
+  document.getElementById('coords').textContent=`${Math.round(px)}, ${Math.round(py)}`;
+  canvas.style.cursor=gameMap.junctions.some(j=>j.hitTest(px,py))?'pointer':'crosshair';
+}
+
+function renderNextTrains() {
+  const c=document.getElementById('next-trains');
+  c.innerHTML='<span style="color:#444;font-size:0.7rem;letter-spacing:1px">PROCHAIN </span>';
+  for(const ci of gameMap.trainQueue.slice(gameMap.trainIdx,gameMap.trainIdx+6)){
+    const d=document.createElement('div'); d.className='train-preview';
+    d.style.background=COLORS[ci]; d.style.boxShadow=`0 0 5px ${COLORS[ci]}`; c.appendChild(d);
+  }
+}
+
+function updateHUD() {
+  document.getElementById('score').textContent=score;
+  document.getElementById('train-count').textContent=trainsRemaining;
+  document.getElementById('timer').textContent=elapsed;
+}
+
+function endGame() {
+  gameRunning=false; clearInterval(timerInterval); clearInterval(spawnInterval); cancelAnimationFrame(animFrame);
+  document.getElementById('game-container').style.display='none';
+  document.getElementById('gameover').style.display='flex';
+  const total=cfg.totalTrains;
+  document.getElementById('final-score-label').textContent=`${score} / ${total}`;
+  const pct=score/total;
+  document.getElementById('final-msg').textContent=
+    pct>=0.9?'PARFAIT - MAITRE DES AIGUILLAGES':
+    pct>=0.7?'EXCELLENT - LES TRAINS SONT FIERS':
+    pct>=0.5?'CORRECT - PEUT MIEUX FAIRE':'DERAILLEMENT MENTAL - REESSAYEZ !';
+}
+
+function backToMenu() {
+  gameRunning=false; clearInterval(timerInterval); clearInterval(spawnInterval); cancelAnimationFrame(animFrame);
+  document.getElementById('gameover').style.display='none';
+  document.getElementById('game-container').style.display='none';
+  document.getElementById('menu').style.display='flex';
+}
+</script>
+</body>
+</html>
